@@ -4,8 +4,8 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
 # Получаем ключи из переменных окружения
-GEMINI_API_KEY = os.getenv("AIzaSyD5j9b3IFKxJ6YdzyGVBS7i3nSoSyc5xMU")
-TELEGRAM_TOKEN = os.getenv("7532015526:AAH6onVHZ7cBL6r13cyA95W0hgY1R4oECrI")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 # Настройка Gemini
 genai.configure(api_key=GEMINI_API_KEY)
