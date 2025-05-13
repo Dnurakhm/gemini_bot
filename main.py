@@ -15,7 +15,7 @@ if not GEMINI_API_KEY:
 
 # Настройка Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-pro")
+model = genai.GenerativeModel("gemini-2.0-flash")
 
 # Шаблон подсказки
 PROMPT_TEMPLATE = """
