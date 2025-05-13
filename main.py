@@ -1,67 +1,87 @@
 import os
 import google.generativeai as genai
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 
-# Получаем ключи из переменных окружения
+# Ключи
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# Проверка ключей
-if not TELEGRAM_TOKEN:
-    raise ValueError("TELEGRAM_TOKEN не задан. Проверь переменные окружения Railway.")
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY не задан. Проверь переменные окружения Railway.")
-
 # Настройка Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")
+model = genai.GenerativeModel("models/gemini-2.0-flash")
 
-# Шаблон запроса
+# Контекст пользователя
+user_contexts = {}
+
+# Шаблон
 PROMPT_TEMPLATE = """
 Ты — дружелюбный и компетентный бухгалтер в онлайн-приложении для ИП и ТОО в Казахстане. Отвечай по делу, по-человечески.
 
-Вопрос пользователя: {user_question}
+Контекст диалога:
+{history}
+
+Новый вопрос пользователя: {user_question}
+
+Ответь только если вопрос связан с бухгалтерией, налогами, отчётами или финансами в Казахстане. Если вопрос не по теме — вежливо откажись.
 """
 
-# Меню кнопок
-menu_keyboard = [["Популярные вопросы"], ["Помощь"]]
+# Меню
+menu_keyboard = [
+    ["Инструкция по 910", "Как платить налоги"],
+    ["Помощь", "Связаться с бухгалтером"]
+]
 reply_markup = ReplyKeyboardMarkup(menu_keyboard, resize_keyboard=True)
 
-# Обработка команды /start
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    user_contexts[user_id] = []
     await update.message.reply_text(
-        "Привет! Я ваш онлайн-бухгалтер. Выберите действие или напишите вопрос:",
+        "Привет! Готов помочь с бухгалтерией твоего ИП или ТОО в Казахстане. Спрашивай!",
         reply_markup=reply_markup
     )
 
-# Обработка текстовых сообщений и кнопок
+# Обработка сообщений
+MAX_HISTORY = 5
+MAX_MESSAGE_LENGTH = 4096
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_question = update.message.text
+    user_id = update.message.from_user.id
+    user_question = update.message.text.strip()
 
-    if user_question == "Помощь":
-        await update.message.reply_text("Я могу помочь вам с вопросами по налогам, ИП, ТОО и бухгалтерии в Казахстане.")
-        return
-    elif user_question == "Популярные вопросы":
-        await update.message.reply_text(
-            "Вот примеры:\n"
-            "- Как открыть ИП?\n"
-            "- Какие налоги платит ТОО?\n"
-            "- Что такое ОПВ и ОСМС?"
-        )
-        return
+    if user_id not in user_contexts:
+        user_contexts[user_id] = []
 
-    # Основной запрос к Gemini
-    prompt = PROMPT_TEMPLATE.format(user_question=user_question)
+    # Обновляем историю
+    history = user_contexts[user_id]
+    history.append(f"Пользователь: {user_question}")
+    history = history[-MAX_HISTORY:]
+
+    # Формируем промпт
+    full_prompt = PROMPT_TEMPLATE.format(
+        history="\n".join(history),
+        user_question=user_question
+    )
 
     try:
-        response = model.generate_content(prompt)
-        await update.message.reply_text(response.text)
-    except Exception as e:
-        await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
-        print("Ошибка:", e)
+        response = model.generate_content(full_prompt)
+        answer = response.text.strip()
 
-# Запуск приложения
+        # Сохраняем ответ в историю
+        history.append(f"Бот: {answer}")
+        user_contexts[user_id] = history[-MAX_HISTORY:]
+
+        # Делим длинный ответ
+        for i in range(0, len(answer), MAX_MESSAGE_LENGTH):
+            chunk = answer[i:i + MAX_MESSAGE_LENGTH]
+            await update.message.reply_text(chunk)
+
+    except Exception as e:
+        print("Ошибка:", e)
+        await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
+
+# Запуск
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
