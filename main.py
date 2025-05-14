@@ -141,7 +141,7 @@ async def enter_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total = tax + total_contrib
         result.append(f"\nИтого к оплате: {total:,.0f} тг")
 
-        await update.message.reply_text("\n".join(result))
+        await update.message.reply_text("\n".join(result), parse_mode='Markdown')
         return ConversationHandler.END
     except ValueError:
         await update.message.reply_text("Введите корректную сумму выручки.")
