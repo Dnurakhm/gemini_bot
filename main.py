@@ -75,7 +75,7 @@ async def start_tax_calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def choose_entity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_data[user_id] = {"entity": update.message.text}
-    await update.message.reply_text("Сколько сотрудников у вас?", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("Количество сотрудников?", reply_markup=ReplyKeyboardRemove())
     return ENTER_EMP_COUNT
 
 
@@ -132,9 +132,10 @@ async def enter_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE):
             opvr = salary * 0.025
             subtotal1 = opvr + osms + so
             subtotal2 = opv + ipn + vosms
+            salarynetto = salary - subtotal2
             total_contrib += (subtotal1 + subtotal2)
             result.append(
-                f"\nСотрудник {i}:\n  За счет работодателя - ОПВР: {opvr:,.0f}\n ООСМС: {osms:,.0f}\n СО: {so:,.0f}\n Всего: {subtotal1:,.0f} тг За счет сотрудника - ОПВ: {opv:,.0f}\n  ИПН: {ipn:,.0f}\n  ВОСМС: {vosms:,.0f}\n  Всего: {subtotal2:,.0f} тг"
+                f"\nСотрудник {i}:\n  За счет работодателя \nОПВР: {opvr:,.0f}\n ООСМС: {osms:,.0f}\n СО: {so:,.0f}\n Всего за счет работодателя: {subtotal1:,.0f} тг \nЗа счет сотрудника \nОПВ: {opv:,.0f}\n  ИПН: {ipn:,.0f}\n  ВОСМС: {vosms:,.0f}\n  Всего за счет сотрудника: {subtotal2:,.0f} тг \n Зарплата на руки {salarynetto:,.0f}"
             )
 
         total = tax + total_contrib
