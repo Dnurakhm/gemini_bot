@@ -1,11 +1,12 @@
 import os
 import google.generativeai as genai
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
     ConversationHandler,
 )
@@ -26,14 +27,6 @@ MZP = 85000  # 2025
 user_data = {}
 user_contexts = {}
 
-# Меню
-menu_keyboard = [
-    ["Финансовые калькуляторы"],
-    ["Инструкция по 910", "Как платить налоги"],
-    ["Помощь", "Связаться с бухгалтером"],
-]
-reply_markup = ReplyKeyboardMarkup(menu_keyboard, resize_keyboard=True)
-
 PROMPT_TEMPLATE = """
 Ты — дружелюбный и компетентный бухгалтер в онлайн-приложении для ИП и ТОО в Казахстане. Отвечай по делу, по-человечески.
 
@@ -47,12 +40,27 @@ PROMPT_TEMPLATE = """
 
 # /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("Финансовые калькуляторы", callback_data="calc")],
+        [InlineKeyboardButton("Помощь", callback_data="help")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     user_contexts[update.message.from_user.id] = []
     await update.message.reply_text(
-        "Привет! Готов помочь с бухгалтерией твоего ИП или ТОО в Казахстане. Выбирай из меню или задай вопрос.",
+        "Привет! Готов помочь с бухгалтерией твоего ИП или ТОО в Казахстане. Выбери действие:",
         reply_markup=reply_markup,
     )
 
+# Обработка inline-кнопок
+async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "calc":
+        await calculators(update, context)
+    elif query.data == "help":
+        await query.edit_message_text("Если нужна помощь, напиши свой вопрос, и я постараюсь ответить.")
 
 # Финансовые калькуляторы → Налоговый
 async def calculators(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -62,22 +70,19 @@ async def calculators(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
     )
 
-
 async def start_tax_calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["ИП", "ТОО"]]
+    keyboard = [["ИП", "ТОО на упрощенке"]]
     await update.message.reply_text(
         "Выберите тип бизнеса:",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
     )
     return SELECT_ENTITY
 
-
 async def choose_entity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_data[user_id] = {"entity": update.message.text}
     await update.message.reply_text("Количество сотрудников?", reply_markup=ReplyKeyboardRemove())
     return ENTER_EMP_COUNT
-
 
 async def enter_employee_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -90,7 +95,6 @@ async def enter_employee_count(update: Update, context: ContextTypes.DEFAULT_TYP
     except ValueError:
         await update.message.reply_text("Введите число сотрудников.")
         return ENTER_EMP_COUNT
-
 
 async def enter_employee_salaries(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -107,7 +111,6 @@ async def enter_employee_salaries(update: Update, context: ContextTypes.DEFAULT_
     except ValueError:
         await update.message.reply_text("Введите корректную зарплату.")
         return ENTER_EMP_SALARIES
-
 
 async def enter_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -147,21 +150,14 @@ async def enter_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Введите корректную сумму выручки.")
         return ENTER_REVENUE
 
-
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Расчёт отменён.", reply_markup=reply_markup)
+    await update.message.reply_text("Расчёт отменён.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
-
 
 # Обработка свободных вопросов через Gemini
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     user_question = update.message.text.strip()
-
-    # Назад в главное меню
-    if user_question.lower() == "назад в меню":
-        await start(update, context)
-        return
 
     if user_id not in user_contexts:
         user_contexts[user_id] = []
@@ -183,12 +179,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("Gemini error:", e)
         await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
 
-
 # Запуск
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # ConversationHandler для налогового калькулятора
     conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^Налоговый калькулятор$"), start_tax_calc)],
         states={
@@ -201,12 +195,11 @@ def main():
     )
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Regex("^Финансовые калькуляторы$"), calculators))
+    app.add_handler(CallbackQueryHandler(handle_menu_callback))
     app.add_handler(conv_handler)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
