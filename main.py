@@ -134,8 +134,7 @@ async def enter_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subtotal2 = opv + ipn + vosms
             total_contrib += (subtotal1 + subtotal2)
             result.append(
-                f"\nСотрудник {i}:\n  За счет работодателя - ОПВР: {opvr:,.0f}\n ООСМС: {osms:,.0f}\n СО: {so:,.0f}\n Всего: {subtotal1,.0f} тг
-                За счет сотрудника - ОПВ: {opv:,.0f}\n  ИПН: {ipn:,.0f}\n  ВОСМС: {vosms:,.0f}\n  Всего: {subtotal2:,.0f} тг"
+                f"\nСотрудник {i}:\n  За счет работодателя - ОПВР: {opvr:,.0f}\n ООСМС: {osms:,.0f}\n СО: {so:,.0f}\n Всего: {subtotal1:,.0f} тг За счет сотрудника - ОПВ: {opv:,.0f}\n  ИПН: {ipn:,.0f}\n  ВОСМС: {vosms:,.0f}\n  Всего: {subtotal2:,.0f} тг"
             )
 
         total = tax + total_contrib
