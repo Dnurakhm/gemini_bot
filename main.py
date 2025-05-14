@@ -1,88 +1,84 @@
 import os
-import google.generativeai as genai
+import requests
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
+import google.generativeai as genai
 
-# Ключи
+# Переменные окружения
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+HF_API_TOKEN = os.getenv("HF_API_TOKEN")  # Hugging Face token
 
 # Настройка Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("models/gemini-2.0-flash")
+gemini_model = genai.GenerativeModel("gemini-2.0-flash")
 
-# Контекст пользователя
-user_contexts = {}
-
-# Шаблон
+# Шаблон для Gemini
 PROMPT_TEMPLATE = """
 Ты — дружелюбный и компетентный бухгалтер в онлайн-приложении для ИП и ТОО в Казахстане. Отвечай по делу, по-человечески.
 
-Контекст диалога:
-{history}
-
-Новый вопрос пользователя: {user_question}
-
-Ответь только если вопрос связан с бухгалтерией, налогами, отчётами или финансами в Казахстане. Если вопрос не по теме — вежливо откажись.
+Вопрос пользователя: {user_question}
 """
 
-# Меню
-menu_keyboard = [
-    ["Инструкция по 910", "Как платить налоги"],
-    ["Помощь", "Связаться с бухгалтером"]
-]
-reply_markup = ReplyKeyboardMarkup(menu_keyboard, resize_keyboard=True)
+# Состояние пользователя
+user_modes = {}  # user_id: "gemini" или "fingpt"
 
-# /start
+# Клавиатура
+keyboard = [["Финансовый консультант"], ["Обычный вопрос"]]
+reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+
+# Обработка /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Привет! Выберите режим общения:", reply_markup=reply_markup)
+
+# Обработка выбора режима
+async def mode_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    user_contexts[user_id] = []
-    await update.message.reply_text(
-        "Привет! Готов помочь с бухгалтерией твоего ИП или ТОО в Казахстане. Спрашивай!",
-        reply_markup=reply_markup
-    )
+    text = update.message.text
+
+    if text == "Финансовый консультант":
+        user_modes[user_id] = "fingpt"
+        await update.message.reply_text("Режим: Финансовый консультант.\nВведите ваш вопрос:")
+    elif text == "Обычный вопрос":
+        user_modes[user_id] = "gemini"
+        await update.message.reply_text("Режим: Бухгалтер Gemini.\nВведите ваш вопрос:")
+
+# Запрос к FinGPT
+def query_fingpt(prompt: str) -> str:
+    api_url = "https://api-inference.huggingface.co/models/AI4Finance/FinGPT"
+    headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
+    response = requests.post(api_url, headers=headers, json={"inputs": prompt})
+    result = response.json()
+    try:
+        return result[0]["generated_text"]
+    except Exception:
+        return "Произошла ошибка при получении ответа от FinGPT."
 
 # Обработка сообщений
-MAX_HISTORY = 5
-MAX_MESSAGE_LENGTH = 4096
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    user_question = update.message.text.strip()
-
-    if user_id not in user_contexts:
-        user_contexts[user_id] = []
-
-    # Обновляем историю
-    history = user_contexts[user_id]
-    history.append(f"Пользователь: {user_question}")
-    history = history[-MAX_HISTORY:]
-
-    # Формируем промпт
-    full_prompt = PROMPT_TEMPLATE.format(
-        history="\n".join(history),
-        user_question=user_question
-    )
+    user_question = update.message.text
+    mode = user_modes.get(user_id, "gemini")
 
     try:
-        response = model.generate_content(full_prompt)
-        answer = response.text.strip()
+        if mode == "fingpt":
+            answer = query_fingpt(user_question)
+        else:
+            prompt = PROMPT_TEMPLATE.format(user_question=user_question)
+            response = gemini_model.generate_content(prompt)
+            answer = response.text
 
-        # Сохраняем ответ в историю
-        history.append(f"Бот: {answer}")
-        user_contexts[user_id] = history[-MAX_HISTORY:]
-
-        # Делим длинный ответ
-        for i in range(0, len(answer), MAX_MESSAGE_LENGTH):
-            chunk = answer[i:i + MAX_MESSAGE_LENGTH]
-            await update.message.reply_text(chunk)
+        # Разделение длинных сообщений
+        for i in range(0, len(answer), 4000):
+            await update.message.reply_text(answer[i:i+4000])
 
     except Exception as e:
-        print("Ошибка:", e)
         await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
+        print("Ошибка:", e)
 
-# Запуск
+# Запуск бота
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mode_handler))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 app.run_polling()
