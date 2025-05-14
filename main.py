@@ -125,13 +125,17 @@ async def enter_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_contrib = 0
         for i, salary in enumerate(salaries, start=1):
             opv = salary * 0.1
-            osms = salary * 0.02
-            so = salary * 0.035
-            sopr = salary * 0.05
-            subtotal = opv + osms + so + sopr
-            total_contrib += subtotal
+            vosms = salary * 0.02
+            ipn = (salary - opv - 55048 - vosms) * 0.1
+            so = (salary - opv) * 0.05
+            osms = salary * 0.03
+            opvr = salary * 0.025
+            subtotal1 = opvr + osms + so
+            subtotal2 = opv + ipn + vosms
+            total_contrib += (subtotal1 + subtotal2)
             result.append(
-                f"\nСотрудник {i}:\n  ОПВ: {opv:,.0f}\n  ОСМС: {osms:,.0f}\n  СО: {so:,.0f}\n  СОПР: {sopr:,.0f}\n  Всего: {subtotal:,.0f} тг"
+                f"\nСотрудник {i}:\n  За счет работодателя - ОПВР: {opvr:,.0f}\n ООСМС: {osms:,.0f}\n СО: {so:,.0f}\n Всего: {subtotal1,.0f} тг
+                За счет сотрудника - ОПВ: {opv:,.0f}\n  ИПН: {ipn:,.0f}\n  ВОСМС: {vosms:,.0f}\n  Всего: {subtotal2:,.0f} тг"
             )
 
         total = tax + total_contrib
