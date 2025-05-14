@@ -117,7 +117,9 @@ async def enter_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE):
         entity = data["entity"]
         salaries = data["salaries"]
 
-        result = [f"Тип бизнеса: {entity}", f"Выручка: {revenue:,.0f} тг", f"Сотрудников: {len(salaries)}"]tax = revenue * 0.03
+        result = [f"Тип бизнеса: {entity}", f"Выручка: {revenue:,.0f} тг", f"Сотрудников: {len(salaries)}"]
+        
+        tax = revenue * 0.03
         result.append(f"\nНалог (3% от выручки): {tax:,.0f} тг")
 
         total_contrib = 0
