@@ -1,238 +1,197 @@
 import os
 import google.generativeai as genai
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters, ConversationHandler
+from telegram.ext import (
+    ApplicationBuilder,
+    ContextTypes,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ConversationHandler,
+)
 
-# Переменные окружения
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# Ключи
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Настройка Gemini
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("models/gemini-2.0-flash")
 
-# МЗП и константы для калькуляторов
-MZP = 85000  # Минимальная заработная плата
+# Состояния калькулятора
+SELECT_ENTITY, ENTER_EMP_COUNT, ENTER_EMP_SALARIES, ENTER_REVENUE = range(4)
 
-# Состояния для калькуляторов
-SELECT_ENTITY, SELECT_EMPLOYEES, ENTER_REVENUE = range(3)
-ESP_LOCATION = range(1)
-SALARY_ENTER = range(2)
-
-# Хранение данных о пользователях
+# Минималка
+MZP = 85000  # 2025
 user_data = {}
+user_contexts = {}
 
-# Функция расчета налогов и взносов
-def calc_tax_kz(entity_type: str, revenue: float, with_employees: bool) -> str:
-    result = []
+# Меню
+menu_keyboard = [
+    ["Финансовые калькуляторы"],
+    ["Инструкция по 910", "Как платить налоги"],
+    ["Помощь", "Связаться с бухгалтером"],
+]
+reply_markup = ReplyKeyboardMarkup(menu_keyboard, resize_keyboard=True)
 
-    tax = revenue * 0.03
-    result.append(f"Налог (3% от выручки): {tax:,.0f} тг")
+PROMPT_TEMPLATE = """
+Ты — дружелюбный и компетентный бухгалтер в онлайн-приложении для ИП и ТОО в Казахстане. Отвечай по делу, по-человечески.
 
-    if with_employees or entity_type == "ИП":
-        opv_base = MZP * 14
-        opv = opv_base * 0.1
-        osms = opv_base * 0.02
-        so = MZP * 0.035
-        sopr = MZP * 0.05
+Контекст диалога:
+{history}
 
-        result.append(f"ОПВ (10% от 14 МЗП): {opv:,.0f} тг")
-        result.append(f"ОСМС (2% от 14 МЗП): {osms:,.0f} тг")
-        result.append(f"СО (3.5% от 1 МЗП): {so:,.0f} тг")
-        result.append(f"СОПР (5% от 1 МЗП): {sopr:,.0f} тг")
+Новый вопрос пользователя: {user_question}
 
-        total = tax + opv + osms + so + sopr
-    else:
-        total = tax
+Ответь только если вопрос связан с бухгалтерией, налогами, отчётами или финансами в Казахстане. Если вопрос не по теме — вежливо откажись.
+"""
 
-    result.append(f"\nИтого к оплате: {total:,.0f} тг")
-    return "\n".join(result)
-
-# Функция расчета ЕСП
-def calc_esp(is_city: bool) -> str:
-    """
-    ЕСП: в городе — 1 МЗП (85000), в селе — 0.5 МЗП
-    Делится:
-    - 10% — ОПВ
-    - 30% — ОСМС
-    - 10% — ИПН
-    - 50% — Социальные отчисления
-    """
-    base = MZP if is_city else MZP / 2
-    opv = base * 0.1
-    osms = base * 0.3
-    ipn = base * 0.1
-    so = base * 0.5
-
-    total = opv + osms + ipn + so
-    return (
-        f"Расчёт ЕСП ({'город' if is_city else 'село'}):\n"
-        f"ОПВ (10%): {opv:,.0f} тг\n"
-        f"ОСМС (30%): {osms:,.0f} тг\n"
-        f"ИПН (10%): {ipn:,.0f} тг\n"
-        f"Социальные отчисления (50%): {so:,.0f} тг\n"
-        f"Итого к оплате: {total:,.0f} тг"
-    )
-
-# Функция расчета зарплаты сотрудника
-def calc_salary(base_salary: float, is_city: bool) -> str:
-    """
-    Расчет зарплаты сотрудника с учетом всех налогов и отчислений
-    - ИПН (10%)
-    - ОПВ (10%)
-    - СО (3.5% от МЗП)
-    - СОПР (5% от МЗП)
-    - ОСМС (2% от МЗП)
-    """
-    ipn = base_salary * 0.1
-    opv = base_salary * 0.1
-    so = MZP * 0.035
-    sopr = MZP * 0.05
-    osms = MZP * 0.02
-
-    deductions = ipn + opv + so + sopr + osms
-
-    net_salary = base_salary - deductions
-
-    return (
-        f"Зарплата сотрудника с учетом всех отчислений:\n"
-        f"Брутто зарплата: {base_salary:,.0f} тг\n"
-        f"ИПН (10%): {ipn:,.0f} тг\n"
-        f"ОПВ (10%): {opv:,.0f} тг\n"
-        f"СО (3.5% от МЗП): {so:,.0f} тг\n"
-        f"СОПР (5% от МЗП): {sopr:,.0f} тг\n"
-        f"ОСМС (2% от МЗП): {osms:,.0f} тг\n"
-        f"Итого отчислений: {deductions:,.0f} тг\n"
-        f"Чистая зарплата: {net_salary:,.0f} тг"
-    )
-
-# Функция начала взаимодействия
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["Финансовые калькуляторы"]]
+    user_contexts[update.message.from_user.id] = []
     await update.message.reply_text(
-        "Привет! Выберите действие:",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
+        "Привет! Готов помочь с бухгалтерией твоего ИП или ТОО в Казахстане. Выбирай из меню или задай вопрос.",
+        reply_markup=reply_markup,
     )
 
-# Функция калькуляторов
+
+# Финансовые калькуляторы → Налоговый
 async def calculators(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["Налоговый калькулятор", "ЕСП калькулятор", "Зарплатный калькулятор"], ["Назад"]]
+    keyboard = [["Налоговый калькулятор"], ["Назад в меню"]]
     await update.message.reply_text(
         "Выберите калькулятор:",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
     )
 
-# Налоговый калькулятор
+
 async def start_tax_calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [["ИП", "ТОО"]]
     await update.message.reply_text(
-        "Выберите тип бизнеса:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        "Выберите тип бизнеса:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
     )
     return SELECT_ENTITY
 
-async def choose_entity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    entity = update.message.text
-    user_data[update.effective_user.id] = {"entity": entity}
-    keyboard = [["Да", "Нет"]]
-    await update.message.reply_text(
-        "Есть ли у вас сотрудники?", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    )
-    return SELECT_EMPLOYEES
 
-async def choose_employees(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    has_employees = update.message.text == "Да"
-    user_data[update.effective_user.id]["with_employees"] = has_employees
-    await update.message.reply_text(
-        "Введите вашу выручку в тг (например: 1200000):", reply_markup=ReplyKeyboardRemove()
-    )
-    return ENTER_REVENUE
+async def choose_entity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_data[user_id] = {"entity": update.message.text}
+    await update.message.reply_text("Сколько сотрудников у вас?", reply_markup=ReplyKeyboardRemove())
+    return ENTER_EMP_COUNT
+
+
+async def enter_employee_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        emp_count = int(update.message.text)
+        user_id = update.effective_user.id
+        user_data[user_id]["emp_count"] = emp_count
+        user_data[user_id]["salaries"] = []
+        await update.message.reply_text(f"Введите зарплату сотрудника 1:")
+        return ENTER_EMP_SALARIES
+    except ValueError:
+        await update.message.reply_text("Введите число сотрудников.")
+        return ENTER_EMP_COUNT
+
+
+async def enter_employee_salaries(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    salaries = user_data[user_id]["salaries"]
+    try:
+        salary = float(update.message.text)
+        salaries.append(salary)
+        if len(salaries) < user_data[user_id]["emp_count"]:
+            await update.message.reply_text(f"Введите зарплату сотрудника {len(salaries)+1}:")
+            return ENTER_EMP_SALARIES
+        else:
+            await update.message.reply_text("Введите общую выручку (тг):")
+            return ENTER_REVENUE
+    except ValueError:
+        await update.message.reply_text("Введите корректную зарплату.")
+        return ENTER_EMP_SALARIES
+
 
 async def enter_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         revenue = float(update.message.text)
-        data = user_data[update.effective_user.id]
-        result = calc_tax_kz(
-            entity_type=data["entity"], revenue=revenue, with_employees=data["with_employees"]
-        )
-        await update.message.reply_text(result)
+        user_id = update.effective_user.id
+        data = user_data[user_id]
+        entity = data["entity"]
+        salaries = data["salaries"]
+
+        result = [f"Тип бизнеса: {entity}", f"Выручка: {revenue:,.0f} тг", f"Сотрудников: {len(salaries)}"]
+        
+        tax = revenue * 0.03
+        result.append(f"\nНалог (3% от выручки): {tax:,.0f} тг")
+
+        total_contrib = 0
+        for i, salary in enumerate(salaries, start=1):
+            opv = salary * 0.1
+            osms = salary * 0.02
+            so = salary * 0.035
+            sopr = salary * 0.05
+            subtotal = opv + osms + so + sopr
+            total_contrib += subtotal
+            result.append(
+                f"\nСотрудник {i}:\n  ОПВ: {opv:,.0f}\n  ОСМС: {osms:,.0f}\n  СО: {so:,.0f}\n  СОПР: {sopr:,.0f}\n  Всего: {subtotal:,.0f} тг"
+            )
+
+        total = tax + total_contrib
+        result.append(f"\nИтого к оплате: {total:,.0f} тг")
+
+        await update.message.reply_text("\n".join(result))
+        return ConversationHandler.END
     except ValueError:
-        await update.message.reply_text("Пожалуйста, введите корректное число.")
+        await update.message.reply_text("Введите корректную сумму выручки.")
         return ENTER_REVENUE
 
-    return ConversationHandler.END
 
-# ЕСП калькулятор
-async def start_esp_calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["Город", "Село"]]
-    await update.message.reply_text(
-        "Выберите местоположение (город или село):", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    )
-    return ESP_LOCATION
-
-async def choose_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    is_city = update.message.text == "Город"
-    result = calc_esp(is_city)
-    await update.message.reply_text(result)
-    return ConversationHandler.END
-
-# Зарплатный калькулятор
-async def start_salary_calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Введите брутто зарплату сотрудника в тг (например: 120000):", reply_markup=ReplyKeyboardRemove()
-    )
-    return SALARY_ENTER
-
-async def enter_salary(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        base_salary = float(update.message.text)
-        data = user_data.get(update.effective_user.id, {})
-        is_city = data.get("location", "Город") == "Город"  # Если место не указано, предположим "Город"
-        result = calc_salary(base_salary, is_city)
-        await update.message.reply_text(result)
-    except ValueError:
-        await update.message.reply_text("Пожалуйста, введите корректное число.")
-        return SALARY_ENTER
-
-    return ConversationHandler.END
-
-# Обработка команды отмены
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Расчёт отменён.", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("Расчёт отменён.", reply_markup=reply_markup)
     return ConversationHandler.END
 
-# Обработка сообщений для Gemini
+
+# Обработка свободных вопросов через Gemini
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_question = update.message.text.strip()
     user_id = update.message.from_user.id
+    user_question = update.message.text.strip()
 
-    if user_id not in user_data:
-        user_data[user_id] = []
+    # Назад в главное меню
+    if user_question.lower() == "назад в меню":
+        await start(update, context)
+        return
 
-    # Формируем контекст для Gemini
-    full_prompt = f"Контекст: {user_data[user_id]}\nВопрос: {user_question}"
+    if user_id not in user_contexts:
+        user_contexts[user_id] = []
+
+    history = user_contexts[user_id]
+    history.append(f"Пользователь: {user_question}")
+    history = history[-5:]
+
+    prompt = PROMPT_TEMPLATE.format(history="\n".join(history), user_question=user_question)
 
     try:
-        response = model.generate_content(full_prompt)
+        response = model.generate_content(prompt)
         answer = response.text.strip()
+        history.append(f"Бот: {answer}")
+        user_contexts[user_id] = history[-5:]
+
         await update.message.reply_text(answer)
     except Exception as e:
+        print("Gemini error:", e)
         await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
 
-# Основная функция для запуска бота
+
+# Запуск
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # Настройка ConversationHandler для налогового и ЕСП калькуляторов
+    # ConversationHandler для налогового калькулятора
     conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^Налоговый калькулятор$"), start_tax_calc),
-                      MessageHandler(filters.Regex("^ЕСП калькулятор$"), start_esp_calc),
-                      MessageHandler(filters.Regex("^Зарплатный калькулятор$"), start_salary_calc)],
+        entry_points=[MessageHandler(filters.Regex("^Налоговый калькулятор$"), start_tax_calc)],
         states={
             SELECT_ENTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_entity)],
-            SELECT_EMPLOYEES: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_employees)],
+            ENTER_EMP_COUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_employee_count)],
+            ENTER_EMP_SALARIES: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_employee_salaries)],
             ENTER_REVENUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_revenue)],
-            ESP_LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_location)],
-            SALARY_ENTER: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_salary)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
@@ -243,6 +202,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
