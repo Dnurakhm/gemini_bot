@@ -53,22 +53,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # Обработка inline-кнопок
-async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
 
-    if query.data == "calc":
-        await calculators(update, context)
-    elif query.data == "help":
-        await query.edit_message_text("Если нужна помощь, напиши свой вопрос, и я постараюсь ответить.")
+async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "calc":
+        await calculators(query, context)  # передаём query, не update
+    elif query.data == "help":
+        await query.edit_message_text("Если нужна помощь, напиши свой вопрос, и я постараюсь ответить.")
+
 
 # Финансовые калькуляторы → Налоговый
-async def calculators(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["Налоговый калькулятор"], ["Назад в меню"]]
-    await update.message.reply_text(
-        "Выберите калькулятор:",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
-    )
+
+async def calculators(query, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [["Налоговый калькулятор"], ["Назад в меню"]]
+    await query.message.reply_text(
+        "Выберите калькулятор:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
+    )
+
 
 async def start_tax_calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [["ИП", "ТОО на упрощенке"]]
