@@ -28,7 +28,7 @@ user_contexts = {}
 def main_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 Финансовые калькуляторы", callback_data="calculators")],
-        [InlineKeyboardButton("❓ Помощь (чат с Gemini)", callback_data="help")]
+        [InlineKeyboardButton("❓ Помощь (чат с финансовым ИИ)", callback_data="help")]
     ])
 
 def back_menu():
@@ -71,7 +71,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "tax_calc":
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("ИП", callback_data="tax_entity_IP"),
-             InlineKeyboardButton("ТОО", callback_data="tax_entity_TOO")],
+             InlineKeyboardButton("ТОО на упрощенке", callback_data="tax_entity_TOO")],
             [InlineKeyboardButton("⬅️ Назад", callback_data="calculators")]
         ])
         await query.edit_message_text("Выберите тип бизнеса:", reply_markup=keyboard)
@@ -145,7 +145,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 salarynetto = salary - subtotal2
                 total_contrib += subtotal1 + subtotal2
                 result.append(
-                    f"\nСотр. {i}:\nРаботодатель: {subtotal1:,.0f} тг\nСотрудник: {subtotal2:,.0f} тг\nНа руки: {salarynetto:,.0f} тг"
+                    f"\nСотрудник {i}:\n**За счет работодателя**\n ОПВР: {opvr:,.0f}\n ООСМС: {osms:,.0f}\n СО: {so:,.0f}\n**Всего за счет работодателя:** {subtotal1:,.0f} тг\n**За счет сотрудника** \n ОПВ: {opv:,.0f}\n ИПН: {ipn:,.0f}\n ВОСМС: {vosms:,.0f}\n**Всего за счет сотрудника:** {subtotal2:,.0f} тг \n**Зарплата на руки** {salarynetto:,.0f}"
                 )
 
             total = tax + total_contrib
