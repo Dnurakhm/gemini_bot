@@ -165,8 +165,17 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    user_question = update.message.text.strip()
 
+    # Если пользователь в процессе расчёта – пропускаем обработку
+    if user_id in user_data and "emp_count" not in user_data[user_id]:
+        return await choose_entity(update, context)
+    elif user_id in user_data and len(user_data[user_id]["salaries"]) < user_data[user_id]["emp_count"]:
+        return await enter_employee_salaries(update, context)
+    elif user_id in user_data and "salaries" in user_data[user_id] and len(user_data[user_id]["salaries"]) == user_data[user_id]["emp_count"] and "revenue" not in user_data[user_id]:
+        return await enter_revenue(update, context)
+
+    # Остальное — обработка через Gemini
+    user_question = update.message.text.strip()
     if user_id not in user_contexts:
         user_contexts[user_id] = []
 
@@ -181,7 +190,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         answer = response.text.strip()
         history.append(f"Бот: {answer}")
         user_contexts[user_id] = history[-5:]
-
         await update.message.reply_text(answer)
     except Exception as e:
         print("Gemini error:", e)
